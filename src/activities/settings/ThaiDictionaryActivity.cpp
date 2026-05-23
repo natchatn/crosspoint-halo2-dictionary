@@ -10,6 +10,8 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+#include "DictionaryLookupActivity.h"
+
 static constexpr char DICT_PATH[] = "/crosspoint/thai_dict.txt";
 static constexpr size_t MAX_BUF = 8192;
 static constexpr size_t MAX_WORDS = 200;
@@ -147,7 +149,13 @@ void ThaiDictionaryActivity::loop() {
     if (selectedIndex == ADD_WORD_INDEX) {
       addWord();
     } else {
-      deleteSelectedWord();
+      const int wordIndex = selectedIndex - FIRST_WORD_INDEX;
+
+      if (wordIndex >= 0 && wordIndex < static_cast<int>(words.size())) {
+        activityManager.pushActivity(
+
+            std::make_unique<DictionaryLookupActivity>(renderer, mappedInput, words[wordIndex]));
+      }
     }
     requestUpdate();
   }
