@@ -32,6 +32,7 @@ class EpubReaderActivity final : public Activity {
   bool selectionMode = false;
   int selectedLineIndex = 0;
   int selectedWordIndex = 0;
+  unsigned long lastSelectionMoveMs = 0; // selection pressed time
   std::string selectedWord;
   std::vector<PageLine*> selectableLines;
   std::unique_ptr<Page> currentPage;

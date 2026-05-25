@@ -250,7 +250,7 @@ void HomeActivity::maybeShowUpdatePopup() {
 
 void HomeActivity::loop() {
   // Check for pending update notification before handling any other input
-  maybeShowUpdatePopup();
+  // maybeShowUpdatePopup();
 
   const int bookCount = static_cast<int>(recentBooks.size());
   const int menuItemCount = getMenuItemCount() - bookCount;

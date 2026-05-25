@@ -3,7 +3,7 @@
 #include <HalStorage.h>
 
 static constexpr char DICT_PATH[] =
-    "/crosspoint/dict/en_th.txt";
+    "/crosspoint/en_th.txt";
 
 static constexpr size_t MAX_BUF = 8192;
 

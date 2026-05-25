@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -39,20 +40,81 @@ constexpr const char* ZERO_WIDTH_SPACE_UTF8 = "\xE2\x80\x8B";
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
+bool isTrimChar(unsigned char c) {
+  return std::ispunct(c);
+}
+
+bool startsWith(const std::string& str, const std::string& prefix) {
+  if (str.length() < prefix.length()) {
+    return false;
+  }
+
+  return str.compare(0, prefix.length(), prefix) == 0;
+}
+
+bool endsWith(const std::string& str, const std::string& suffix) {
+  if (str.length() < suffix.length()) {
+    return false;
+  }
+
+  return str.compare(str.length() - suffix.length(),
+                     suffix.length(),
+                     suffix) == 0;
+}
+
 std::string cleanLookupWord(const std::string& input) {
   std::string word = input;
 
   // lowercase
   std::transform(word.begin(), word.end(), word.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+                 [](unsigned char c) {
+                   return std::tolower(c);
+                 });
 
-  // delete punctuation
-  while (!word.empty() && std::ispunct((unsigned char)word.front())) {
-    word.erase(word.begin());
-  }
+  // UTF-8 punctuation commonly found in EPUB novels
+  const std::vector<std::string> utf8Tokens = {
+      "“",
+      "”",
+      "‘",
+      "’",
+      "„",
+      "«",
+      "»"};
 
-  while (!word.empty() && std::ispunct((unsigned char)word.back())) {
-    word.pop_back();
+  bool changed = true;
+
+  while (changed && !word.empty()) {
+    changed = false;
+
+    // ASCII front trim
+    while (!word.empty() &&
+           isTrimChar(static_cast<unsigned char>(word.front()))) {
+      word.erase(word.begin());
+      changed = true;
+    }
+
+    // ASCII back trim
+    while (!word.empty() &&
+           isTrimChar(static_cast<unsigned char>(word.back()))) {
+      word.pop_back();
+      changed = true;
+    }
+
+    // UTF-8 front trim
+    for (const auto& token : utf8Tokens) {
+      if (startsWith(word, token)) {
+        word.erase(0, token.length());
+        changed = true;
+      }
+    }
+
+    // UTF-8 back trim
+    for (const auto& token : utf8Tokens) {
+      if (endsWith(word, token)) {
+        word.erase(word.length() - token.length());
+        changed = true;
+      }
+    }
   }
 
   return word;
@@ -1096,9 +1158,6 @@ void EpubReaderActivity::lookupSelectedWord() {
   selectedWord = cleanLookupWord(words[selectedWordIndex]);
   startActivityForResult(std::make_unique<ThaiDictionaryActivity>(renderer, mappedInput, selectedWord),
                          [this](const ActivityResult&) {
-                           selectionMode = false;
-                           selectedWord.clear();
-                           selectableLines.clear();
                            skipNextButtonCheck = true;
                            requestUpdate();
                          });
