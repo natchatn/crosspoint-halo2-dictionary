@@ -10,6 +10,8 @@
 #include <Logging.h>
 #include <esp_system.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub/hyphenation/ThaiWordBreaker.h"
@@ -32,6 +34,7 @@
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
 constexpr unsigned long skipChapterMs = 700;
+constexpr const char* ZERO_WIDTH_SPACE_UTF8 = "\xE2\x80\x8B";
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
@@ -43,6 +46,46 @@ int clampPercent(int percent) {
     return 100;
   }
   return percent;
+}
+
+bool isSelectableWord(const std::string& word) { return !word.empty() && word != ZERO_WIDTH_SPACE_UTF8; }
+
+int firstSelectableWordIndex(const PageLine* line) {
+  if (!line || !line->getBlock()) {
+    return -1;
+  }
+  const auto& words = line->getBlock()->getWords();
+  for (int i = 0; i < static_cast<int>(words.size()); i++) {
+    if (isSelectableWord(words[i])) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+int nearestSelectableWordIndex(const PageLine* line, const int preferredIndex) {
+  if (!line || !line->getBlock()) {
+    return -1;
+  }
+  const auto& words = line->getBlock()->getWords();
+  if (words.empty()) {
+    return -1;
+  }
+  const int start = std::min(std::max(preferredIndex, 0), static_cast<int>(words.size()) - 1);
+  if (isSelectableWord(words[start])) {
+    return start;
+  }
+  for (int distance = 1; distance < static_cast<int>(words.size()); distance++) {
+    const int right = start + distance;
+    if (right < static_cast<int>(words.size()) && isSelectableWord(words[right])) {
+      return right;
+    }
+    const int left = start - distance;
+    if (left >= 0 && isSelectableWord(words[left])) {
+      return left;
+    }
+  }
+  return -1;
 }
 
 }  // namespace
@@ -120,6 +163,8 @@ void EpubReaderActivity::onExit() {
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
   section.reset();
+  currentPage.reset();
+  selectableLines.clear();
   epub.reset();
 
   // Release the SD font's page-resident glyph cache (~17-30KB) before Home's
@@ -149,6 +194,13 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  if (suppressConfirmRelease) {
+    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+      suppressConfirmRelease = false;
+    }
+    return;
+  }
+
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -173,6 +225,42 @@ void EpubReaderActivity::loop() {
       pageTurn(true);
       return;
     }
+  }
+
+  if (selectionMode) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+      exitSelectionMode();
+      skipNextButtonCheck = true;
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      lookupSelectedWord();
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+      moveSelectedWord(-1);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+      moveSelectedWord(1);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      moveSelectedLine(-1);
+      return;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      moveSelectedLine(1);
+      return;
+    }
+    return;
+  }
+
+  if (mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+      mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
+    suppressConfirmRelease = true;
+    enterSelectionMode();
+    return;
   }
 
   // Enter reader menu activity.
@@ -714,11 +802,14 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       return;
     }
 
-    // Collect footnotes from the loaded page
-    currentPageFootnotes = std::move(p->footnotes);
+    currentPage = std::move(p);
+    currentPageFootnotes = currentPage->footnotes;
+    if (selectionMode) {
+      buildSelectableLines();
+    }
 
     const auto start = millis();
-    renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+    renderContents(*currentPage, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
   }
   saveProgress(currentSpineIndex, section->currentPage, section->pageCount);
@@ -754,7 +845,7 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     LOG_ERR("ERS", "Could not save progress!");
   }
 }
-void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,
+void EpubReaderActivity::renderContents(const Page& page, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
   const auto t0 = millis();
@@ -764,7 +855,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Font prewarm: scan pass accumulates text, then prewarm, then real render
   const uint32_t heapBefore = esp_get_free_heap_size();
   auto scope = fcm->createPrewarmScope();
-  page->render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);  // scan pass
+  page.render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);  // scan pass
   scope.endScanAndPrewarm();
   const uint32_t heapAfter = esp_get_free_heap_size();
   fcm->logStats("prewarm");
@@ -774,9 +865,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
           (int32_t)heapAfter - (int32_t)heapBefore);
 
   // Force special handling for pages with images when anti-aliasing is on
-  bool imagePageWithAA = page->hasImages() && SETTINGS.textAntiAliasing;
+  bool imagePageWithAA = page.hasImages() && SETTINGS.textAntiAliasing;
 
-  page->render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+  page.render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+  renderSelectionHighlight(page, orientedMarginTop, orientedMarginLeft);
   renderStatusBar();
 
   // Dark mode: invert framebuffer (white text on black background)
@@ -794,12 +886,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // Step 1: Display page with image area blanked (text appears, image area white)
     // Step 2: Re-render with images and display again (images appear clean)
     int16_t imgX, imgY, imgW, imgH;
-    if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
+    if (page.getImageBoundingBox(imgX, imgY, imgW, imgH)) {
       renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 
       // Re-render page content to restore images into the blanked area
-      page->render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+      page.render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+      renderSelectionHighlight(page, orientedMarginTop, orientedMarginLeft);
       renderStatusBar();
       if (SETTINGS.readerDarkMode) {
         renderer.invertScreen();
@@ -825,7 +918,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
     renderer.clearScreen(grayClear);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    page->render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+    page.render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+    renderSelectionHighlight(page, orientedMarginTop, orientedMarginLeft);
     if (SETTINGS.readerDarkMode) {
       renderer.invertScreen();
     }
@@ -835,7 +929,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // Render and copy to MSB buffer
     renderer.clearScreen(grayClear);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    page->render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+    page.render(renderer, getEffectiveFontId(), orientedMarginLeft, orientedMarginTop);
+    renderSelectionHighlight(page, orientedMarginTop, orientedMarginLeft);
     if (SETTINGS.readerDarkMode) {
       renderer.invertScreen();
     }
@@ -869,6 +964,159 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
             tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tBwRestore - tBwStore,
             tEnd - t0);
   }
+}
+
+void EpubReaderActivity::enterSelectionMode() {
+  buildSelectableLines();
+  if (selectableLines.empty()) {
+    return;
+  }
+
+  selectionMode = true;
+  selectedLineIndex = 0;
+  selectedWordIndex = firstSelectableWordIndex(selectableLines[selectedLineIndex]);
+  selectedWord = selectableLines[selectedLineIndex]->getBlock()->getWords()[selectedWordIndex];
+  requestUpdate();
+}
+
+void EpubReaderActivity::exitSelectionMode() {
+  selectionMode = false;
+  selectedLineIndex = 0;
+  selectedWordIndex = 0;
+  selectedWord.clear();
+  selectableLines.clear();
+  requestUpdate();
+}
+
+void EpubReaderActivity::buildSelectableLines() {
+  selectableLines.clear();
+  if (!currentPage) {
+    return;
+  }
+
+  for (const auto& element : currentPage->elements) {
+    if (!element || element->getTag() != TAG_PageLine) {
+      continue;
+    }
+    auto* line = static_cast<PageLine*>(element.get());
+    if (firstSelectableWordIndex(line) >= 0) {
+      selectableLines.push_back(line);
+    }
+  }
+
+  if (selectableLines.empty()) {
+    selectionMode = false;
+    selectedLineIndex = 0;
+    selectedWordIndex = 0;
+    selectedWord.clear();
+    return;
+  }
+
+  selectedLineIndex = std::min(std::max(selectedLineIndex, 0), static_cast<int>(selectableLines.size()) - 1);
+  selectedWordIndex = nearestSelectableWordIndex(selectableLines[selectedLineIndex], selectedWordIndex);
+  if (selectedWordIndex < 0) {
+    selectedWordIndex = firstSelectableWordIndex(selectableLines[selectedLineIndex]);
+  }
+  selectedWord = selectableLines[selectedLineIndex]->getBlock()->getWords()[selectedWordIndex];
+}
+
+void EpubReaderActivity::moveSelectedWord(const int delta) {
+  if (selectableLines.empty() || selectedLineIndex < 0 ||
+      selectedLineIndex >= static_cast<int>(selectableLines.size())) {
+    return;
+  }
+
+  const auto& words = selectableLines[selectedLineIndex]->getBlock()->getWords();
+  int nextIndex = selectedWordIndex + delta;
+  while (nextIndex >= 0 && nextIndex < static_cast<int>(words.size())) {
+    if (isSelectableWord(words[nextIndex])) {
+      selectedWordIndex = nextIndex;
+      selectedWord = words[selectedWordIndex];
+      requestUpdate();
+      return;
+    }
+    nextIndex += delta;
+  }
+}
+
+void EpubReaderActivity::moveSelectedLine(const int delta) {
+  if (selectableLines.empty()) {
+    return;
+  }
+
+  const int nextLineIndex =
+      std::min(std::max(selectedLineIndex + delta, 0), static_cast<int>(selectableLines.size()) - 1);
+  if (nextLineIndex == selectedLineIndex) {
+    return;
+  }
+
+  const int nextWordIndex = nearestSelectableWordIndex(selectableLines[nextLineIndex], selectedWordIndex);
+  if (nextWordIndex < 0) {
+    return;
+  }
+
+  selectedLineIndex = nextLineIndex;
+  selectedWordIndex = nextWordIndex;
+  selectedWord = selectableLines[selectedLineIndex]->getBlock()->getWords()[selectedWordIndex];
+  requestUpdate();
+}
+
+void EpubReaderActivity::lookupSelectedWord() {
+  if (selectableLines.empty() || selectedLineIndex < 0 ||
+      selectedLineIndex >= static_cast<int>(selectableLines.size())) {
+    return;
+  }
+
+  const auto& words = selectableLines[selectedLineIndex]->getBlock()->getWords();
+  if (selectedWordIndex < 0 || selectedWordIndex >= static_cast<int>(words.size()) ||
+      !isSelectableWord(words[selectedWordIndex])) {
+    return;
+  }
+
+  selectedWord = words[selectedWordIndex];
+  startActivityForResult(std::make_unique<ThaiDictionaryActivity>(renderer, mappedInput, selectedWord),
+                         [this](const ActivityResult&) {
+                           selectionMode = false;
+                           selectedWord.clear();
+                           selectableLines.clear();
+                           skipNextButtonCheck = true;
+                           requestUpdate();
+                         });
+}
+
+void EpubReaderActivity::renderSelectionHighlight(const Page&, const int orientedMarginTop,
+                                                  const int orientedMarginLeft) const {
+  if (!selectionMode || selectableLines.empty() || selectedLineIndex < 0 ||
+      selectedLineIndex >= static_cast<int>(selectableLines.size())) {
+    return;
+  }
+
+  const auto* line = selectableLines[selectedLineIndex];
+  if (!line || !line->getBlock()) {
+    return;
+  }
+
+  const auto& block = line->getBlock();
+  const auto& words = block->getWords();
+  const auto& wordXpos = block->getWordXpos();
+  const auto& wordStyles = block->getWordStyles();
+  if (selectedWordIndex < 0 || selectedWordIndex >= static_cast<int>(words.size()) ||
+      selectedWordIndex >= static_cast<int>(wordXpos.size()) ||
+      selectedWordIndex >= static_cast<int>(wordStyles.size()) || !isSelectableWord(words[selectedWordIndex])) {
+    return;
+  }
+
+  const int fontId = getEffectiveFontId();
+  const auto style = wordStyles[selectedWordIndex];
+  const int wordX = orientedMarginLeft + line->xPos + wordXpos[selectedWordIndex];
+  const int wordY = orientedMarginTop + line->yPos;
+  const int wordWidth = renderer.getTextWidth(fontId, words[selectedWordIndex].c_str(), style);
+  const int wordHeight = renderer.getTextHeight(fontId);
+  if (wordWidth <= 0 || wordHeight <= 0) {
+    return;
+  }
+
+  renderer.drawRect(wordX - 2, wordY - 2, wordWidth + 4, wordHeight + 4, 2, true);
 }
 
 void EpubReaderActivity::renderStatusBar() const {

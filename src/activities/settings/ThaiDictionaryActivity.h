@@ -14,6 +14,7 @@ class ThaiDictionaryActivity final : public Activity {
   ButtonNavigator buttonNavigator;
 
   std::vector<std::string> words;
+  std::string initialWord;
   int selectedIndex = 0;  // 0 = "Add Word" action, 1..N = word entries
   bool dirty = false;     // true when words have been modified
 
@@ -28,6 +29,9 @@ class ThaiDictionaryActivity final : public Activity {
  public:
   explicit ThaiDictionaryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("ThaiDictionary", renderer, mappedInput) {}
+  explicit ThaiDictionaryActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                  const std::string& initialWord)
+      : Activity("ThaiDictionary", renderer, mappedInput), initialWord(initialWord) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;

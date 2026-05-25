@@ -19,6 +19,10 @@ static constexpr size_t MAX_WORDS = 200;
 void ThaiDictionaryActivity::onEnter() {
   Activity::onEnter();
   loadWords();
+  if (!initialWord.empty()) {
+    startActivityForResult(std::make_unique<DictionaryLookupActivity>(renderer, mappedInput, initialWord),
+                           [this](const ActivityResult&) { finish(); });
+  }
   requestUpdate();
 }
 

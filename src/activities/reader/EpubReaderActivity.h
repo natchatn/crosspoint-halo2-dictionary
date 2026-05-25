@@ -1,6 +1,7 @@
 #pragma once
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
+#include <Epub/Page.h>
 #include <Epub/Section.h>
 
 #include "EpubReaderMenuActivity.h"
@@ -26,7 +27,14 @@ class EpubReaderActivity final : public Activity {
   float pendingSpineProgress = 0.0f;
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
+  bool suppressConfirmRelease = false;
   bool automaticPageTurnActive = false;
+  bool selectionMode = false;
+  int selectedLineIndex = 0;
+  int selectedWordIndex = 0;
+  std::string selectedWord;
+  std::vector<PageLine*> selectableLines;
+  std::unique_ptr<Page> currentPage;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -38,8 +46,15 @@ class EpubReaderActivity final : public Activity {
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
   int footnoteDepth = 0;
 
-  void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
+  void renderContents(const Page& page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
+  void enterSelectionMode();
+  void exitSelectionMode();
+  void buildSelectableLines();
+  void moveSelectedWord(int delta);
+  void moveSelectedLine(int delta);
+  void lookupSelectedWord();
+  void renderSelectionHighlight(const Page& page, int orientedMarginTop, int orientedMarginLeft) const;
   void renderStatusBar() const;
   void saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
