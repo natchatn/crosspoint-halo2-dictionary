@@ -13,57 +13,70 @@ std::string lookupWord(const std::string& word) {
     return "DICT NOT FOUND";
   }
 
-  auto* buf = static_cast<char*>(malloc(MAX_BUF));
+  HalFile file;
 
-  if (!buf) {
-    return "MEM ERROR";
+  if (!Storage.openFileForRead("DICT", DICT_PATH, file)) {
+    return "OPEN ERROR";
   }
 
-  const size_t bytesRead =
-      Storage.readFileToBuffer(
-          DICT_PATH,
-          buf,
-          MAX_BUF);
+  std::string currentLine;
 
-  std::string result = "NOT FOUND";
+  while (file.available()) {
 
-  size_t lineStart = 0;
+    char c = file.read();
 
-  for (size_t i = 0; i <= bytesRead; ++i) {
+    // skip CR
+    if (c == '\r') {
+      continue;
+    }
 
-    if (i == bytesRead ||
-        buf[i] == '\n' ||
-        buf[i] == '\r') {
+    // line finished
+    if (c == '\n') {
 
-      if (i > lineStart) {
+      size_t sep = currentLine.find('|');
 
-        std::string line(
-            buf + lineStart,
-            i - lineStart);
+      if (sep != std::string::npos) {
 
-        size_t sep = line.find('|');
+        std::string key =
+            currentLine.substr(0, sep);
 
-        if (sep != std::string::npos) {
+        std::string value =
+            currentLine.substr(sep + 1);
 
-          std::string key =
-              line.substr(0, sep);
-
-          std::string value =
-              line.substr(sep + 1);
-
-          if (key == word) {
-
-            result = value;
-            break;
-          }
+        if (key == word) {
+          file.close();
+          return value;
         }
       }
 
-      lineStart = i + 1;
+      currentLine.clear();
+    }
+    else {
+      currentLine += c;
     }
   }
 
-  free(buf);
+  // handle last line without newline
+  if (!currentLine.empty()) {
 
-  return result;
+    size_t sep = currentLine.find('|');
+
+    if (sep != std::string::npos) {
+
+      std::string key =
+          currentLine.substr(0, sep);
+
+      std::string value =
+          currentLine.substr(sep + 1);
+
+      if (key == word) {
+        file.close();
+        return value;
+      }
+    }
+  }
+
+  file.close();
+
+  return "NOT FOUND";
 }
