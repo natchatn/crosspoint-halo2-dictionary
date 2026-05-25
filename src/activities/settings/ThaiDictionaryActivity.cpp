@@ -153,13 +153,7 @@ void ThaiDictionaryActivity::loop() {
     if (selectedIndex == ADD_WORD_INDEX) {
       addWord();
     } else {
-      const int wordIndex = selectedIndex - FIRST_WORD_INDEX;
-
-      if (wordIndex >= 0 && wordIndex < static_cast<int>(words.size())) {
-        activityManager.pushActivity(
-
-            std::make_unique<DictionaryLookupActivity>(renderer, mappedInput, words[wordIndex]));
-      }
+      deleteSelectedWord();
     }
     requestUpdate();
   }

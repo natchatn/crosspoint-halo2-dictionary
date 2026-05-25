@@ -11,6 +11,7 @@
 #include <esp_system.h>
 
 #include <algorithm>
+#include <cctype>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -37,6 +38,25 @@ constexpr unsigned long skipChapterMs = 700;
 constexpr const char* ZERO_WIDTH_SPACE_UTF8 = "\xE2\x80\x8B";
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
+
+std::string cleanLookupWord(const std::string& input) {
+  std::string word = input;
+
+  // lowercase
+  std::transform(word.begin(), word.end(), word.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  // delete punctuation
+  while (!word.empty() && std::ispunct((unsigned char)word.front())) {
+    word.erase(word.begin());
+  }
+
+  while (!word.empty() && std::ispunct((unsigned char)word.back())) {
+    word.pop_back();
+  }
+
+  return word;
+}
 
 int clampPercent(int percent) {
   if (percent < 0) {
@@ -1073,7 +1093,7 @@ void EpubReaderActivity::lookupSelectedWord() {
     return;
   }
 
-  selectedWord = words[selectedWordIndex];
+  selectedWord = cleanLookupWord(words[selectedWordIndex]);
   startActivityForResult(std::make_unique<ThaiDictionaryActivity>(renderer, mappedInput, selectedWord),
                          [this](const ActivityResult&) {
                            selectionMode = false;
