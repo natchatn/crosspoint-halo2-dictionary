@@ -9,6 +9,7 @@ on:
       - edited
 
 permissions:
+  pull-requests: read
   statuses: write
 
 jobs:
