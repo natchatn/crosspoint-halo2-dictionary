@@ -7,6 +7,8 @@
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
 
+#include "util/ButtonNavigator.h"
+
 class EpubReaderActivity final : public Activity {
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
@@ -80,4 +82,7 @@ class EpubReaderActivity final : public Activity {
   void loop() override;
   void render(RenderLock&& lock) override;
   bool isReaderActivity() const override { return true; }
+
+  private:
+    ButtonNavigator buttonNavigator;
 };

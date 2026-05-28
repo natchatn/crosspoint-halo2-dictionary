@@ -17,8 +17,6 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "Epub/hyphenation/ThaiWordBreaker.h"
-#include "SdCardFontGlobals.h"
-#include "activities/settings/ThaiDictionaryActivity.h"
 #include "EpubReaderChapterSelectionActivity.h"
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
@@ -28,7 +26,9 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "SdCardFontGlobals.h"
 #include "activities/settings/StatusBarSettingsActivity.h"
+#include "activities/settings/ThaiDictionaryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
@@ -40,9 +40,7 @@ constexpr const char* ZERO_WIDTH_SPACE_UTF8 = "\xE2\x80\x8B";
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
-bool isTrimChar(unsigned char c) {
-  return std::ispunct(c);
-}
+bool isTrimChar(unsigned char c) { return std::ispunct(c); }
 
 bool startsWith(const std::string& str, const std::string& prefix) {
   if (str.length() < prefix.length()) {
@@ -57,29 +55,17 @@ bool endsWith(const std::string& str, const std::string& suffix) {
     return false;
   }
 
-  return str.compare(str.length() - suffix.length(),
-                     suffix.length(),
-                     suffix) == 0;
+  return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
 }
 
 std::string cleanLookupWord(const std::string& input) {
   std::string word = input;
 
   // lowercase
-  std::transform(word.begin(), word.end(), word.begin(),
-                 [](unsigned char c) {
-                   return std::tolower(c);
-                 });
+  std::transform(word.begin(), word.end(), word.begin(), [](unsigned char c) { return std::tolower(c); });
 
   // UTF-8 punctuation commonly found in EPUB novels
-  const std::vector<std::string> utf8Tokens = {
-      "“",
-      "”",
-      "‘",
-      "’",
-      "„",
-      "«",
-      "»"};
+  const std::vector<std::string> utf8Tokens = {"“", "”", "‘", "’", "„", "«", "»"};
 
   bool changed = true;
 
@@ -87,15 +73,13 @@ std::string cleanLookupWord(const std::string& input) {
     changed = false;
 
     // ASCII front trim
-    while (!word.empty() &&
-           isTrimChar(static_cast<unsigned char>(word.front()))) {
+    while (!word.empty() && isTrimChar(static_cast<unsigned char>(word.front()))) {
       word.erase(word.begin());
       changed = true;
     }
 
     // ASCII back trim
-    while (!word.empty() &&
-           isTrimChar(static_cast<unsigned char>(word.back()))) {
+    while (!word.empty() && isTrimChar(static_cast<unsigned char>(word.back()))) {
       word.pop_back();
       changed = true;
     }
@@ -182,8 +166,8 @@ int EpubReaderActivity::getEffectiveFontId() const {
   if (id != lastLoggedId || now - lastLogMs > 3000) {
     lastLoggedId = id;
     lastLogMs = now;
-    LOG_INF("READER", "getEffectiveFontId=%d (sdFont='%s' fontFamily=%u fontSize=%u lang='%s' title='%s')",
-            id, SETTINGS.sdFontFamilyName, (unsigned)SETTINGS.fontFamily, (unsigned)SETTINGS.fontSize,
+    LOG_INF("READER", "getEffectiveFontId=%d (sdFont='%s' fontFamily=%u fontSize=%u lang='%s' title='%s')", id,
+            SETTINGS.sdFontFamilyName, (unsigned)SETTINGS.fontFamily, (unsigned)SETTINGS.fontSize,
             epub->getLanguage().c_str(), epub->getTitle().c_str());
   }
   return id;
@@ -315,26 +299,32 @@ void EpubReaderActivity::loop() {
       skipNextButtonCheck = true;
       return;
     }
+
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       lookupSelectedWord();
       return;
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] {
       moveSelectedWord(-1);
-      return;
-    }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+      requestUpdate();
+    });
+
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] {
       moveSelectedWord(1);
-      return;
-    }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+      requestUpdate();
+    });
+
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this] {
       moveSelectedLine(-1);
-      return;
-    }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+      requestUpdate();
+    });
+
+    buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] {
       moveSelectedLine(1);
-      return;
-    }
+      requestUpdate();
+    });
+
     return;
   }
 
@@ -927,9 +917,8 @@ void EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     LOG_ERR("ERS", "Could not save progress!");
   }
 }
-void EpubReaderActivity::renderContents(const Page& page, const int orientedMarginTop,
-                                        const int orientedMarginRight, const int orientedMarginBottom,
-                                        const int orientedMarginLeft) {
+void EpubReaderActivity::renderContents(const Page& page, const int orientedMarginTop, const int orientedMarginRight,
+                                        const int orientedMarginBottom, const int orientedMarginLeft) {
   const auto t0 = millis();
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
@@ -985,7 +974,12 @@ void EpubReaderActivity::renderContents(const Page& page, const int orientedMarg
     }
     // Double FAST_REFRESH handles ghosting for image pages; don't count toward full refresh cadence
   } else {
-    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    if (selectionMode) {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+
+    } else {
+      ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    }
   }
   const auto tDisplay = millis();
 
