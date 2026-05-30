@@ -15,19 +15,19 @@ This project is based on the following open-source projects:
 * Crosspoint firmware
 * crosspoint-halo2-custom by kocha01
 
-Original firmware and multilingual infrastructure belong to their respective authors.
+The original firmware focuses primarily on Thai-language reading and EPUB support.
 
-This repository extends the original firmware with a custom dictionary engine and EPUB lookup system developed by Natchanon.
+This repository extends the firmware with a custom English → Thai dictionary lookup system, embedded search engine, and EPUB reader interaction features.
 
 Major additions include:
 
 * English → Thai dictionary integration
 * Embedded binary-search dictionary engine
-* Smart lookup word cleaning
+* EPUB word highlighting and selection
+* Smart lookup word normalization
+* Morphological word recovery (stemming)
 * Large dictionary optimization
-* EPUB word selection workflow
-* Highlight persistence improvements
-* Reader UX enhancements
+* Reader UX improvements
 
 This project continues under the original MIT License.
 
@@ -82,6 +82,50 @@ Supported cleanup includes:
 * brackets
 * symbols
 
+## Smart Word Recovery
+
+The dictionary can automatically recover common word forms before searching.
+
+Examples:
+
+```txt
+books      -> book
+stories    -> story
+wolves     -> wolf
+foxes      -> fox
+classes    -> class
+dishes     -> dish
+
+walked     -> walk
+trudged    -> trudge
+hoped      -> hope
+danced     -> dance
+
+walking    -> walk
+making     -> make
+writing    -> write
+typing     -> type
+loving     -> love
+```
+
+This significantly improves lookup success when reading real EPUB books.
+
+---
+
+# Dictionary Engine
+
+The lookup engine is designed for embedded devices and large dictionary files.
+
+Features:
+
+* SD-card streamed lookup
+* Byte-level binary search
+* No full-file RAM loading
+* Automatic word normalization
+* Morphological recovery
+* Multi-megabyte dictionary support
+* ESP32-friendly memory usage
+  
 ---
 
 # Large Dictionary Support
@@ -100,18 +144,6 @@ Optimized for very large dictionary files.
 * SD-card streamed lookup
 * No full-file RAM loading
 * Supports multi-megabyte dictionaries
-
----
-
-# Fast Binary Search Lookup
-
-The dictionary engine:
-
-* Uses byte-level binary search
-* Seeks directly into the dictionary file
-* Reads only nearby lines
-* Minimizes SD card reads
-* Improves performance on huge dictionaries
 
 ---
 
@@ -176,9 +208,18 @@ Lowercase conversion
     ↓
 Unicode punctuation cleanup
     ↓
-Dictionary binary search
+Binary Search Lookup
     ↓
-Thai meaning result
+Found?
+ ├─ Yes → Return meaning
+ │
+ └─ No
+      ↓
+   stemWord()
+      ↓
+   Retry Lookup
+      ↓
+   Return meaning / NOT FOUND
 ```
 
 ---
@@ -209,6 +250,8 @@ Optimized for:
 * Word navigation
 * Dictionary lookup
 * Word cleaning
+* Unicode punctuation cleanup
+* Morphological word recovery (stemming)
 * Large dictionary support
 * Binary search engine
 * Selection persistence
@@ -216,14 +259,11 @@ Optimized for:
 
 ## Planned
 
-* Verb normalization
-
-  * trudged → trudge
-  * running → run
-
-* Smarter stemming
-
-* Faster cache/index system
+* Advanced irregular verb support
+* Dictionary cache system
+* Optional dictionary index generation
+* Popup overlay dictionary
+* Additional language packs
 
 ---
 
