@@ -1,6 +1,8 @@
 # Xteink X4 Thai Dictionary Lookup System
 
+[![Release](https://img.shields.io/github/v/release/natchatn/crosspoint-halo2-dictionary?include_prereleases&label=Release)](https://github.com/natchatn/crosspoint-halo2-dictionary/releases)
 [![Downloads](https://img.shields.io/github/downloads/natchatn/crosspoint-halo2-dictionary/v1.0.0-beta/total?label=Downloads)](https://github.com/natchatn/crosspoint-halo2-dictionary/releases/tag/v1.0.0-beta)
+[![Stars](https://img.shields.io/github/stars/natchatn/crosspoint-halo2-dictionary?style=flat&label=Stars)](https://github.com/natchatn/crosspoint-halo2-dictionary/stargazers)
 
 A custom English → Thai dictionary firmware extension for the Xteink X4 e-reader.
 
