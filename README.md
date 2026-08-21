@@ -1,5 +1,7 @@
 # Xteink X4 Thai Dictionary Lookup System
 
+[![GitHub Downloads](https://shields.io)](https://github.com/natchatn/crosspoint-halo2-dictionary/releases/tag/v1.0.0-beta)
+
 A custom English → Thai dictionary firmware extension for the Xteink X4 e-reader.
 
 This project adds an integrated in-reader dictionary system with word highlighting, instant lookup, smart text normalization, and optimized large-dictionary search directly inside the EPUB reader.
