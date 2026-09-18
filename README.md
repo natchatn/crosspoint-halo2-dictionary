@@ -12,6 +12,16 @@ Built for embedded e-ink hardware with a strong focus on performance, low memory
 
 ---
 
+## Demo
+
+Hold Confirm to select a word, use the hardware buttons to move the highlight, then press Confirm to see its Thai meaning.
+
+
+
+https://github.com/user-attachments/assets/4037c213-0101-431e-936c-934a347f9e6b
+
+
+
 # Project Lineage & Credits
 
 This project is based on the following open-source projects:
